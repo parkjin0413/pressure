@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { Activity, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronRight, Download, Heart, History, LayoutDashboard, Leaf, LogOut, Plus, ShieldCheck, TrendingUp, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { average, csv, dateLabel, periodReadings, validateReading, type Reading } from '@/lib/records';
+import { average, csv, dateLabel, loginEmail, periodReadings, validateReading, type Reading } from '@/lib/records';
 
 type Tab = 'home' | 'history' | 'stats';
 const tabs = [{ id: 'home' as Tab, label: '오늘의 혈압', icon: LayoutDashboard }, { id: 'history' as Tab, label: '기록 내역', icon: History }, { id: 'stats' as Tab, label: '통계 보기', icon: TrendingUp }];
@@ -43,13 +43,13 @@ export default function Home() {
     setLoading(true); setReadings([]); setError('');
     const client = supabase;
     void (async () => {
-      const membership = await client.from('members').select('user_id').eq('user_id', user.id).maybeSingle();
+      const membership = await client.from('pressure_members').select('user_id').eq('user_id', user.id).maybeSingle();
       if (version !== requestVersion.current) return;
       if (membership.error || !membership.data) { setError('사용이 허용된 계정이 아니거나 데이터베이스가 연결되지 않았어요. 설정을 확인해 주세요.'); setLoading(false); return; }
       // Paginate so statistics and exports include every record, beyond Supabase's default row limit.
       const all: Reading[] = [];
       for (let offset = 0; ; offset += 1000) {
-        const { data, error } = await client.from('readings').select('id,systolic,diastolic,pulse,note,measured_at').order('measured_at', { ascending: false }).order('id').range(offset, offset + 999);
+        const { data, error } = await client.from('pressure_readings').select('id,systolic,diastolic,pulse,note,measured_at').order('measured_at', { ascending: false }).order('id').range(offset, offset + 999);
         if (version !== requestVersion.current) return;
         if (error) { setError('기록을 불러오지 못했어요. 연결을 확인한 후 다시 시도해 주세요.'); setLoading(false); return; }
         all.push(...data as Reading[]);
@@ -89,8 +89,8 @@ export default function Home() {
     const data = new FormData(event.currentTarget);
     setBusy(true); setError('');
     try {
-      const result = await supabase.auth.signInWithPassword({ email: String(data.get('email')).trim(), password: String(data.get('password')) });
-      if (result.error) setError('로그인하지 못했어요. 이메일과 비밀번호 또는 네트워크 연결을 확인해 주세요.');
+      const result = await supabase.auth.signInWithPassword({ email: loginEmail(String(data.get('email'))), password: String(data.get('password')) });
+      if (result.error) setError('로그인하지 못했어요. 아이디와 비밀번호 또는 네트워크 연결을 확인해 주세요.');
     } catch { setError('서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.'); }
     finally { setBusy(false); }
   }
@@ -98,7 +98,7 @@ export default function Home() {
   async function logout() {
     setBusy(true); setError('');
     try {
-      if (!demo && supabase) { const { error } = await supabase.auth.signOut(); if (error) throw error; }
+      if (!demo && supabase) { const { error } = await supabase.auth.signOut({ scope: 'local' }); if (error) throw error; }
       requestVersion.current++; setDemo(false); setUser(null); setReadings([]); setTab('home'); setNotice('');
     } catch { setError('로그아웃하지 못했어요. 다시 시도해 주세요.'); }
     finally { setBusy(false); }
@@ -116,7 +116,7 @@ export default function Home() {
     try {
       if (demo) storeDemo([{ ...values, id: crypto.randomUUID(), measured_at: new Date().toISOString() }, ...readings]);
       else if (supabase && user) {
-        const { data: row, error } = await supabase.from('readings').insert(values).select('id,systolic,diastolic,pulse,note,measured_at').single();
+        const { data: row, error } = await supabase.from('pressure_readings').insert(values).select('id,systolic,diastolic,pulse,note,measured_at').single();
         if (error) throw error;
         setReadings(prev => [row as Reading, ...prev]);
       } else throw new Error('로그인이 필요해요.');
@@ -130,7 +130,7 @@ export default function Home() {
     try {
       if (demo) storeDemo(readings.filter(r => r.id !== id));
       else if (supabase) {
-        const { data, error } = await supabase.from('readings').delete().eq('id', id).select('id');
+        const { data, error } = await supabase.from('pressure_readings').delete().eq('id', id).select('id');
         if (error || !data?.length) throw error ?? new Error('Missing record');
         setReadings(prev => prev.filter(r => r.id !== id));
       }
@@ -153,7 +153,7 @@ export default function Home() {
 
   if (!user && !demo) return <main className="login-page">
     <div className="login-intro"><Brand /><span className="eyebrow">A LITTLE CARE, EVERY DAY</span><h1>오늘의 작은 기록,<br />내일의 건강한 일상.</h1><p>나와 가족을 위한 혈압 기록장.<br />복잡한 과정 없이, 매일 가볍게 챙겨보세요.</p><div className="login-art" aria-hidden="true"><Heart size={86} strokeWidth={1} /><Activity size={138} strokeWidth={1.1} /><span>매일, 나를 돌보는 시간</span></div><span className="intro-bottom"><Leaf size={17} /> 작은 습관이 쌓이는 곳, 매일혈압</span></div>
-    <section className="login-card"><span className="pill"><ShieldCheck size={15} /> 우리 가족만의 건강 기록</span><h2>반가워요 <span className="wave">☀</span></h2><p>로그인하고 오늘의 혈압을 남겨보세요.</p><form onSubmit={login}><label>이메일<input type="email" name="email" autoComplete="username" placeholder="이메일을 입력해 주세요" required disabled={!supabase} /></label><label>비밀번호<input type="password" name="password" autoComplete="current-password" placeholder="비밀번호를 입력해 주세요" required disabled={!supabase} /></label>{error && <p role="alert" className="error">{error}</p>}<button className="primary" disabled={busy || !supabase}>{busy ? '로그인 중…' : '로그인'}<ChevronRight size={19} /></button></form><p className="login-help">미리 등록된 두 분의 계정으로 이용할 수 있어요.<br />계정과 비밀번호는 가족 관리자에게 확인해 주세요.</p>{!supabase && <p className="setup-note">Supabase 연결 설정 전입니다.<br />아래 체험하기에서 화면과 기능을 확인할 수 있어요.</p>}<button className="text-button demo-link" onClick={enterDemo}>먼저 체험해 보기 <ArrowUpRight size={16} /></button><small>체험 기록은 현재 브라우저에만 저장됩니다.</small></section>
+    <section className="login-card"><span className="pill"><ShieldCheck size={15} /> 우리 가족만의 건강 기록</span><h2>반가워요 <span className="wave">☀</span></h2><p>로그인하고 오늘의 혈압을 남겨보세요.</p><form onSubmit={login}><label>아이디<input type="text" name="email" autoCapitalize="none" spellCheck={false} autoComplete="username" placeholder="parkjin0413 또는 ksn4962" required disabled={!supabase} /></label><label>비밀번호<input type="password" name="password" autoComplete="current-password" placeholder="비밀번호를 입력해 주세요" required disabled={!supabase} /></label>{error && <p role="alert" className="error">{error}</p>}<button className="primary" disabled={busy || !supabase}>{busy ? '로그인 중…' : '로그인'}<ChevronRight size={19} /></button></form><p className="login-help">미리 등록된 두 분의 계정으로 이용할 수 있어요.<br />계정과 비밀번호는 가족 관리자에게 확인해 주세요.</p>{!supabase && <p className="setup-note">Supabase 연결 설정 전입니다.<br />아래 체험하기에서 화면과 기능을 확인할 수 있어요.</p>}<button className="text-button demo-link" onClick={enterDemo}>먼저 체험해 보기 <ArrowUpRight size={16} /></button><small>체험 기록은 현재 브라우저에만 저장됩니다.</small></section>
   </main>;
 
   return <div className="app-shell">

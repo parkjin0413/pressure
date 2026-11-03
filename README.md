@@ -1,77 +1,62 @@
 # 매일혈압
 
-두 사람이 각자의 계정으로 로그인해서 쓰는 모바일 중심 혈압 기록장입니다. Next.js App Router, TypeScript, Supabase Auth/Postgres로 구성하며 Vercel에 배포합니다.
+두 사람이 각자의 아이디로 쓰는 모바일 혈압 기록장입니다. Next.js App Router, TypeScript, Supabase Auth/Postgres, Vercel로 구성합니다.
 
-## 기능
+- 사이트: https://pressure-sandy.vercel.app
+- 소스: https://github.com/parkjin0413/pressure
+- Supabase: 기존 `work` 프로젝트 (`urcdwhuiszggdaeksmcz`, 서울 리전)
+- 로그인 ID: `parkjin0413`, `ksn4962` (전체 `@pressure.com` 주소도 입력 가능)
 
-- 이메일·비밀번호 로그인, 로그인 유지, 로그아웃
-- 수축기·이완기 혈압, 선택 맥박·메모 입력
-- 저장 시각 자동 지정: 실제 기록은 DB 서버 시각, 체험은 기기 시각
-- 최근 기록, 7·30·90일 조회, 평균 혈압·맥박, 기록한 날 수
-- 일별 평균 혈압 그래프, 선택 기간 CSV 다운로드, 삭제 확인
-- 계정별 기록 분리: DB RLS 및 등록된 사용자 목록으로 접근 제어
-- 환경변수 없이 브라우저 저장을 사용하는 명시적 체험 모드
+## 사용 방법
 
-실제 계정 사이의 기록 공유 기능은 없습니다. 체험 기록은 실제 계정으로 이전되지 않습니다. 진단이나 혈압 분류를 제공하지 않습니다.
+로그인 → 혈압 기록하기 → 수축기·이완기 입력 → 저장합니다. 맥박과 메모는 선택입니다. 실제 기록은 DB 서버의 현재 시각으로 저장되고 기기의 현지 시각으로 표시됩니다. 기록 내역, 7·30·90일 통계, 일별 평균 그래프, CSV 다운로드, 삭제를 지원합니다. 두 계정은 서로의 기록을 볼 수 없습니다.
+
+최초 생성 비밀번호는 **이 PC의 `.env.accounts.local`** 에만 저장합니다. Git과 Vercel 업로드에서 제외됩니다. 주소는 로그인 식별자로 사용하며 메일은 보내지 않습니다. 비밀번호를 변경했다면 로컬 생성 파일의 이전 비밀번호는 더 이상 유효하지 않습니다. 관리자는 Supabase Authentication에서 해당 사용자의 비밀번호를 재설정할 수 있습니다.
+
+체험 기록은 해당 브라우저에만 저장되고 실제 계정으로 이전되지 않습니다. 오프라인 동기화와 진단 기능은 제공하지 않습니다.
+
+## 기존 work 사이트와 분리
+
+| 대상 | 혈압 앱의 처리 |
+| --- | --- |
+| 테이블 | `public.pressure_members`, `public.pressure_readings`만 사용 |
+| 기존 테이블·권한·정책 | 변경하지 않음 |
+| 공통 Auth 설정·Site URL | 변경하지 않음 |
+| 계정 | 메일 발송 없이 전용 두 계정 직접 생성 |
+| 접근 권한 | 등록된 혈압 회원이 본인 기록만 조회·입력·삭제 |
+| 브라우저 로그인 저장소 | 전용 키 `pressure-auth-v1` |
+| 로그아웃 | `scope: 'local'`, 현재 세션만 종료 |
+| 배포 | 별도 Vercel `pressure` 프로젝트·GitHub 저장소 |
+
+서버, 인증 사용자 목록, 저장 공간과 사용량 한도는 공유합니다. 서버 장애나 한도 초과까지 분리되지는 않습니다. 기존 앱의 접근 정책을 추가·변경할 때도 혈압 계정에 기존 데이터 접근 권한이 생기지 않는지 확인해야 합니다.
+
+일반 사용자는 혈압 회원을 추가·수정할 수 없습니다. 혈압 앱의 가입 기능은 없고 공통 가입 설정은 변경하지 않습니다. 기록 사용자 ID와 시각은 DB 기본값으로 정하며 클라이언트의 덮어쓰기 권한은 차단합니다. 잘못 입력한 기록은 삭제 후 다시 기록합니다.
 
 ## 로컬 실행
 
-Node.js 22.18 이상에서 실행합니다. PowerShell 실행 정책으로 npm이 막히면 `npm.cmd`를 사용하세요.
+Node.js 22.18 이상에서 실행합니다. PowerShell 실행 정책 오류가 나면 `npm.cmd`를 사용하세요.
 
 ```sh
 npm ci
-cp .env.example .env.local
 npm run dev
 ```
 
-http://localhost:3000 에 접속합니다. `.env.local`을 작성하지 않아도 체험 모드를 사용할 수 있습니다. 체험 기록은 브라우저 저장 공간을 삭제하면 사라집니다.
-
-## Supabase 연결
-
-1. Supabase 프로젝트를 만들고 SQL Editor에서 `supabase/migrations/001_initial.sql`을 한 번 실행합니다.
-2. Authentication → 설정에서 새 사용자 가입(Allow new users to sign up)을 **비활성화**합니다. 이메일/비밀번호 로그인은 활성화합니다.
-3. Authentication → Users → Add user → Create new user에서 두 분의 이메일과 비밀번호로 계정을 직접 생성하고 이메일을 확인된 상태로 설정합니다. 앱에서는 가입·초대 메일을 보내지 않습니다.
-4. 생성된 각 사용자의 UUID로 아래 SQL을 실행합니다. `<...>`를 실제 UUID로 교체합니다.
-
-```sql
-insert into public.members (user_id, display_name) values
-  ('<본인 UUID>', '나'),
-  ('<어머니 UUID>', '엄마');
-```
-
-5. 각 Auth 사용자의 User metadata에 `{"display_name":"나"}` 또는 `{"display_name":"엄마"}`를 설정하면 화면 상단에 해당 이름이 나옵니다. 생략하면 `회원님`으로 표시됩니다. 회원 테이블의 이름은 관리용이며 권한은 UUID로 판단합니다.
-6. 프로젝트의 Connect 또는 API 설정에서 Project URL과 **publishable key**를 찾아 `.env.local`에 설정합니다.
+http://localhost:3000 에 접속합니다. `.env.example`을 참고해 `.env.local`에 다음 두 공개 설정을 넣습니다.
 
 ```dotenv
-NEXT_PUBLIC_SUPABASE_URL=https://실제프로젝트.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=실제_publishable_key
+NEXT_PUBLIC_SUPABASE_URL=https://urcdwhuiszggdaeksmcz.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=프로젝트의_publishable_key_또는_anon_key
 ```
 
-이 두 값은 클라이언트 공개 설정입니다. **secret key / service_role key는 넣지 마세요.** `.env.local`은 Git에서 제외됩니다. 환경변수를 변경한 후 개발 서버를 재시작하세요.
+`secret` 또는 `service_role` 키를 `NEXT_PUBLIC_*` 변수에 넣지 마세요. 실제 환경변수와 비밀번호 파일은 커밋하지 않습니다.
 
-일반 로그인 사용자는 본인의 membership만 읽을 수 있으며 membership을 생성하거나 변경할 수 없습니다. 등록된 사용자만 본인 기록을 조회·입력·삭제할 수 있습니다. 측정 시각과 사용자 ID는 컬럼 권한으로 클라이언트 입력을 차단하고 DB 기본값으로 설정합니다. 기록 수정은 지원하지 않으며 잘못 입력한 기록은 삭제 후 새로 기록합니다. 모든 기록을 페이지 단위로 불러와 통계와 CSV가 기본 행 제한에서 잘리지 않게 합니다. 시간은 UTC로 저장하고 사용 중인 기기의 현지 시각으로 표시합니다.
+## 배포
 
-## GitHub → Vercel 배포
+Vercel `pressure`는 GitHub `main` 브랜치에 연결되어 push 시 운영 배포가 생성됩니다. Production과 Development에 공개 Supabase 설정을 등록합니다. Preview에는 운영 DB 설정을 자동 복사하지 않습니다. 환경변수 변경 후 재배포해야 적용됩니다.
 
-1. GitHub에 새 **비공개** 저장소를 만든 뒤 이 폴더를 연결합니다. 환경변수 파일은 올리지 않습니다.
+공유 Supabase의 Site URL을 혈압 주소로 바꾸거나 공통 회원가입을 끄면 기존 앱에 영향을 줄 수 있으므로 변경하지 마세요. 이 앱은 이메일 리디렉션 없는 비밀번호 로그인을 사용합니다.
 
-```sh
-git init
-git add .
-git commit -m "Build daily blood pressure tracker"
-git branch -M main
-git remote add origin https://github.com/사용자명/저장소명.git
-git push -u origin main
-```
-
-2. Vercel → Add New → Project에서 GitHub 저장소를 가져옵니다. Framework Preset은 Next.js, Root Directory는 기본값을 사용합니다.
-3. 위 두 환경변수를 Vercel의 Production 환경에 넣고 배포합니다. Preview에서 실제 DB를 쓰려면 Preview에도 추가해야 합니다. 분리된 개발용 Supabase 프로젝트를 권장합니다.
-4. Supabase Authentication → URL Configuration의 Site URL에 Vercel 운영 주소를 등록합니다.
-5. 이후 main으로 push하면 Vercel이 자동 배포합니다. 환경변수 변경 시 재배포합니다.
-
-모바일 브라우저에서 운영 주소를 연 다음 홈 화면에 추가하면 편하게 열 수 있습니다. 오프라인 저장·동기화는 지원하지 않으며 실제 기록 저장에는 인터넷 연결이 필요합니다.
-
-## 검증
+## 관리와 검증
 
 ```sh
 npm test
@@ -79,6 +64,14 @@ npm run typecheck
 npm run build
 ```
 
-Supabase 연결 후 실제 계정으로 다음을 확인하세요: A가 입력한 기록이 재로그인 후 유지되는지, B에게 보이지 않는지, 목록에 없는 C는 저장할 수 없는지, 익명 요청은 거부되는지. 운영 전 확인을 위한 SQL은 `supabase/verify.sql`에 있습니다. 실제 Supabase 프로젝트와 계정이 없으면 인증·RLS 통합 검증은 수행할 수 없습니다.
+관리 스크립트는 로그인된 Supabase CLI가 있는 Windows 환경에서 실행합니다. 대상 프로젝트를 명시하며 관리자 키는 메모리에서만 사용하고 출력·저장하지 않습니다.
 
-사용한 공식 문서: [Next.js](https://nextjs.org/docs/app/getting-started/installation), [Supabase 비밀번호 로그인](https://supabase.com/docs/reference/javascript/auth-signinwithpassword), [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
+- `scripts/provision-pressure.mjs`: 초기 구성. 기존 일반 계정을 덮어쓰지 않습니다.
+- `scripts/verify-pressure.mjs`: 두 계정 로그인, 서버 시각 저장, 계정 간 조회·삭제 차단, 익명·비회원 접근 차단, ID·시각 위조 차단, 기존 work 데이터 접근 차단, 로그아웃 격리 검증. 임시 기록은 삭제합니다.
+- `scripts/configure-vercel.mjs`: 공개 연결 값 두 개만 Vercel `pressure`에 stdin으로 전달합니다.
+- `supabase/migrations/001_initial.sql`: 혈압 전용 객체 정의. 이미 적용한 DB에서 다시 실행하지 마세요.
+- `supabase/isolation-snapshot.sql`: 기존 구조·권한·정책·인증 트리거의 변경 여부 확인. 기존 앱의 데이터는 읽지 않습니다.
+- `supabase/verify.sql`: 혈압 테이블 RLS·컬럼 권한 확인.
+- `supabase/verify-nonmember.sql`: 관련 없는 인증 사용자의 혈압 기록 접근 차단 검증.
+
+운영에서는 각 계정으로 본인 기록만 보이는지 확인하세요. 로컬 계정 파일과 관리자 스크립트는 배포되지 않습니다.

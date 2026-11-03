@@ -7,6 +7,11 @@ export type Reading = {
   measured_at: string;
 };
 
+export function loginEmail(identifier: string) {
+  const value = identifier.trim().toLowerCase();
+  return value.includes('@') ? value : `${value}@pressure.com`;
+}
+
 export function validateReading(systolic: number, diastolic: number, pulse: number | null) {
   if (!Number.isInteger(systolic) || systolic < 40 || systolic > 300) return '수축기 혈압을 40~300 사이의 정수로 입력해 주세요.';
   if (!Number.isInteger(diastolic) || diastolic < 20 || diastolic > 200) return '이완기 혈압을 20~200 사이의 정수로 입력해 주세요.';

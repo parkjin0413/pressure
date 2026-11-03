@@ -1,8 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { average, csv, periodReadings, validateReading, type Reading } from '../src/lib/records.ts';
+import { average, csv, loginEmail, periodReadings, validateReading, type Reading } from '../src/lib/records.ts';
 
 const reading = (date: string, pulse: number | null = null): Reading => ({ id: date, measured_at: date, systolic: 120, diastolic: 80, pulse, note: '' });
+test('login IDs map to the requested domain and accept full addresses', () => {
+  assert.equal(loginEmail(' Parkjin0413 '), 'parkjin0413@pressure.com');
+  assert.equal(loginEmail('ksn4962'), 'ksn4962@pressure.com');
+  assert.equal(loginEmail('KSN4962@pressure.com'), 'ksn4962@pressure.com');
+});
 test('rejects invalid and reversed blood pressure readings', () => {
   assert.equal(validateReading(120, 80, null), null);
   for (const values of [[80, 120, 70], [120.5, 80, 70], [301, 80, 70], [120, 19, 70], [120, 80, 251], [NaN, 80, 70]]) assert.ok(validateReading(...values as [number, number, number]));

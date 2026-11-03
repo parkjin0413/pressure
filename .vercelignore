@@ -1,5 +1,6 @@
 .npm-cache
 tests
 supabase
-.env.local
+.env*
+scripts
 *.tsbuildinfo
