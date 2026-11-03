@@ -5,7 +5,7 @@ import { projectKeys, projectUrl, sqlFile } from './supabase-connection.mjs';
 
 const credentialsPath = '.env.accounts.local';
 const baselinePath = '.env.isolation-baseline.local';
-const users = [{ email: 'parkjin0413@pressure.com', name: '나' }, { email: 'ksn4962@pressure.com', name: '엄마' }];
+const users = [{ email: 'parkjin0413@pressure.com', name: '박진' }, { email: 'ksn4962@pressure.com', name: '김순녀' }];
 
 try {
   const { publicKey, adminKey } = projectKeys();

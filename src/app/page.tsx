@@ -5,7 +5,7 @@ import type { User } from '@supabase/supabase-js';
 import { Activity, CalendarDays, Check, Download, History, LogOut, ShieldCheck, Trash2, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PasswordSettings } from '@/components/password-settings';
-import { average, csv, dateLabel, loginEmail, periodReadings, validateReading, type Reading } from '@/lib/records';
+import { accountDisplayName, average, csv, dateLabel, groupReadingsByDay, loginEmail, periodReadings, validateReading, type Reading } from '@/lib/records';
 
 type Tab = 'home' | 'history' | 'stats';
 type ReadingInput = Pick<Reading, 'systolic' | 'diastolic' | 'pulse' | 'note'>;
@@ -162,7 +162,7 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  const displayName = demo ? '체험' : (user?.user_metadata?.display_name || '회원');
+  const displayName = demo ? '체험' : accountDisplayName(user?.email, user?.user_metadata?.display_name || '회원');
   if (!ready) return <main className="splash"><Activity size={32} /><p>잠시만 기다려 주세요.</p></main>;
 
   if (!user && !demo) return <main className="login-page">
@@ -186,17 +186,13 @@ export default function Home() {
   return <div className="app-shell">
     <header className="topbar">
       <Brand />
-      <div className="account"><span className="account-name">{displayName}님</span>
-        {!demo && <PasswordSettings onChanged={() => setNotice('비밀번호를 변경했어요. 다음 로그인부터 새 비밀번호를 사용해 주세요.')} />}
-        <button className="text-button" onClick={logout} disabled={busy}><LogOut size={18} />{demo ? '체험 종료' : '로그아웃'}</button>
-      </div>
+      <span className="account-name">{displayName}님</span>
     </header>
     <main className="content">
       <nav className="main-nav" aria-label="메인 메뉴">{tabs.map(t => <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} className={tab === t.id ? 'selected' : ''} onClick={() => switchTab(t.id)}><t.icon size={21} />{t.label}</button>)}</nav>
       {demo && <p className="demo-banner">체험 모드 · 이 브라우저에만 저장돼요.</p>}
       <div className="page-heading">
-        <h1>{tab === 'home' ? '혈압을 입력해 주세요' : tab === 'history' ? '기록' : '통계'}</h1>
-        {tab === 'home' && <p className="muted">혈압계에 나온 숫자를 적고 저장하세요.</p>}
+        <h1>{tab === 'home' ? '혈압 입력' : tab === 'history' ? '기록' : '통계'}</h1>
       </div>
       {tab !== 'home' && error && <p role="alert" className="error">{error}</p>}
       {tab !== 'home' && notice && <p role="status" className="success">{notice}</p>}
@@ -207,6 +203,12 @@ export default function Home() {
       {tab !== 'home' && <section className="period-section" aria-label="조회 기간">
         <h2>조회 기간</h2><div className="period-control">{[7, 30, 90].map(d => <button key={d} aria-pressed={days === d} className={days === d ? 'selected' : ''} onClick={() => setDays(d)}>{d}일</button>)}</div>
         <p className="muted">최근 {days}일 · {filtered.length}회 측정</p>
+      </section>}
+
+      {tab === 'history' && filtered.length > 0 && <section className="panel history-summary" aria-label="기간 평균">
+        <h2>{displayName}님 · 최근 {days}일 평균</h2>
+        <p><strong>{average(filtered, 'systolic')} / {average(filtered, 'diastolic')}</strong> mmHg</p>
+        <span className="muted">최고 / 최저 혈압 · 아래는 개별 측정값입니다.</span>
       </section>}
 
       {tab === 'stats' && <>
@@ -225,14 +227,15 @@ export default function Home() {
         </div>
         {(tab === 'home' ? readings.slice(0, 3) : filtered).length === 0
           ? <div className="panel empty-state"><p>{loading ? '기록을 불러오는 중입니다.' : '아직 기록이 없어요.'}</p>{!loading && <p className="muted">{tab === 'home' ? '위 입력칸에 첫 혈압을 남겨보세요.' : '이 기간에 저장한 기록이 없습니다.'}</p>}</div>
-          : <div className="records-list">{(tab === 'home' ? readings.slice(0, 3) : filtered).map(r => <article className="panel record-card" key={r.id}>
-            <time dateTime={r.measured_at}>{dateLabel(r.measured_at)}</time>
-            <dl className="record-numbers"><div><dt>최고 혈압</dt><dd>{r.systolic}<small>mmHg</small></dd></div><div><dt>최저 혈압</dt><dd>{r.diastolic}<small>mmHg</small></dd></div>{r.pulse !== null && <div><dt>맥박</dt><dd>{r.pulse}<small>회/분</small></dd></div>}</dl>
-            {r.note && <p className="record-note">{r.note}</p>}
-            <button className="delete-button" disabled={busy} onClick={() => remove(r)} aria-label={dateLabel(r.measured_at) + ' 기록 삭제'}><Trash2 size={17} />삭제</button>
-          </article>)}</div>}
+          : <DailyRecords readings={tab === 'home' ? readings.slice(0, 3) : filtered} busy={busy} onRemove={remove} />}
       </section>}
-      <footer className="content-footer"><ShieldCheck size={18} /><p>기록은 본인만 볼 수 있어요.<br />개인 기록용이며 진단을 대신하지 않습니다.</p></footer>
+      <footer className="content-footer">
+        <div className="privacy-note"><ShieldCheck size={18} /><p>기록은 본인만 볼 수 있어요.<br />개인 기록용이며 진단을 대신하지 않습니다.</p></div>
+        <div className="account-actions" aria-label="계정 관리">
+          {!demo && <PasswordSettings onChanged={() => setNotice('비밀번호를 변경했어요. 다음 로그인부터 새 비밀번호를 사용해 주세요.')} />}
+          <button className="text-button" onClick={logout} disabled={busy}><LogOut size={18} />{demo ? '체험 종료' : '로그아웃'}</button>
+        </div>
+      </footer>
     </main>
   </div>;
 }
@@ -257,21 +260,40 @@ function ReadingForm({ onSave, disabled, busy, error, notice, clock }: {
     if (success) form.reset();
   }
   return <section className="panel entry-panel" aria-label="혈압 입력">
-    <p className="auto-time"><CalendarDays size={20} /><span>{clock?.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })}<br />저장할 때 시간이 자동으로 기록돼요.</span></p>
+    <p className="auto-time"><CalendarDays size={20} /><span>{clock?.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })}</span></p>
     <form onSubmit={submit}>
       <div className="reading-grid">
         <label className="pressure-field"><span>최고 혈압 <small>수축기</small></span><input name="systolic" type="number" inputMode="numeric" min={40} max={300} step={1} required disabled={disabled} aria-describedby="systolic-unit" /><small id="systolic-unit">단위: mmHg</small></label>
         <label className="pressure-field"><span>최저 혈압 <small>이완기</small></span><input name="diastolic" type="number" inputMode="numeric" min={20} max={200} step={1} required disabled={disabled} aria-describedby="diastolic-unit" /><small id="diastolic-unit">단위: mmHg</small></label>
       </div>
-      <details className="optional-fields"><summary>맥박·메모도 입력하기 <span>(선택)</span></summary><div className="optional-content">
+      {error && <p role="alert" className="error">{error}</p>}
+      <div className="save-action"><button className="primary save-button" disabled={disabled}><Check size={23} />{busy ? '저장 중…' : '혈압 저장'}</button></div>
+      <div className="save-feedback" role="status" aria-live="polite" aria-atomic="true">{notice && <p className="success">{notice}</p>}</div>
+      <details className="optional-fields"><summary>맥박·메모 입력 <span>(선택)</span></summary><div className="optional-content">
         <label>맥박 <small>회/분</small><input name="pulse" type="number" inputMode="numeric" min={20} max={250} step={1} disabled={disabled} /></label>
         <label>메모<textarea name="note" maxLength={300} rows={3} disabled={disabled} /></label>
       </div></details>
-      {error && <p role="alert" className="error">{error}</p>}
-      <button className="primary save-button" disabled={disabled}><Check size={23} />{busy ? '저장 중…' : '혈압 저장'}</button>
-      <div className="save-feedback" role="status" aria-live="polite" aria-atomic="true">{notice && <p className="success">{notice}</p>}</div>
     </form>
   </section>;
+}
+
+function DailyRecords({ readings, busy, onRemove }: { readings: Reading[]; busy: boolean; onRemove: (reading: Reading) => void }) {
+  return <div className="records-list">{groupReadingsByDay(readings).map(([day, entries]) => <section className="panel daily-records" key={day} aria-label={day + ' 혈압 기록'}>
+    <div className="day-heading"><h3><time dateTime={day}>{dateLabel(entries[0].measured_at, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</time></h3><span>{entries.length}회 측정</span></div>
+    <div className="reading-columns reading-column-labels" aria-hidden="true"><span>측정 시간</span><span>최고</span><span>최저</span></div>
+    {entries.map(r => <article className="daily-reading" key={r.id}>
+      <div className="reading-columns">
+        <time dateTime={r.measured_at}>{dateLabel(r.measured_at, { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
+        <strong><span className="sr-only">최고 혈압 </span>{r.systolic}<span className="sr-only"> mmHg</span></strong>
+        <strong><span className="sr-only">최저 혈압 </span>{r.diastolic}<span className="sr-only"> mmHg</span></strong>
+      </div>
+      <div className="reading-details">{r.pulse !== null && <span>맥박 {r.pulse}회/분</span>}
+        <details className="record-actions"><summary aria-label={dateLabel(r.measured_at) + ' 기록 관리'}>관리</summary><button className="delete-button" disabled={busy} onClick={() => onRemove(r)} aria-label={dateLabel(r.measured_at) + ' 기록 삭제'}><Trash2 size={17} />기록 삭제</button></details>
+      </div>
+      {r.note && <p className="record-note">{r.note}</p>}
+    </article>)}
+    <p className="record-unit">혈압 단위: mmHg</p>
+  </section>)}</div>;
 }
 
 function Stat({ label, value, unit }: { label: string; value: number | null; unit: string }) {

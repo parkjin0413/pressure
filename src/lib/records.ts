@@ -12,6 +12,22 @@ export function loginEmail(identifier: string) {
   return value.includes('@') ? value : `${value}@pressure.com`;
 }
 
+export function accountDisplayName(email?: string, fallback = '회원') {
+  const names: Record<string, string> = { 'parkjin0413@pressure.com': '박진', 'ksn4962@pressure.com': '김순녀' };
+  return names[email?.trim().toLowerCase() ?? ''] ?? fallback;
+}
+
+export function groupReadingsByDay(readings: Reading[]) {
+  const groups = new Map<string, Reading[]>();
+  for (const reading of [...readings].sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))) {
+    const day = new Date(reading.measured_at).toLocaleDateString('sv-SE');
+    const entries = groups.get(day) ?? [];
+    entries.push(reading);
+    groups.set(day, entries);
+  }
+  return [...groups.entries()];
+}
+
 export function validateReading(systolic: number, diastolic: number, pulse: number | null) {
   if (!Number.isInteger(systolic) || systolic < 40 || systolic > 300) return '수축기 혈압을 40~300 사이의 정수로 입력해 주세요.';
   if (!Number.isInteger(diastolic) || diastolic < 20 || diastolic > 200) return '이완기 혈압을 20~200 사이의 정수로 입력해 주세요.';

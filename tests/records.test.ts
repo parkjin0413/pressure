@@ -1,8 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { average, csv, loginEmail, periodReadings, validateReading, type Reading } from '../src/lib/records.ts';
+import { accountDisplayName, average, csv, groupReadingsByDay, loginEmail, periodReadings, validateReading, type Reading } from '../src/lib/records.ts';
 
 const reading = (date: string, pulse: number | null = null): Reading => ({ id: date, measured_at: date, systolic: 120, diastolic: 80, pulse, note: '' });
+test('account names apply to both login identities with a safe fallback', () => {
+  assert.equal(accountDisplayName('parkjin0413@pressure.com', '나'), '박진');
+  assert.equal(accountDisplayName('KSN4962@pressure.com', '엄마'), '김순녀');
+  assert.equal(accountDisplayName(undefined), '회원');
+  assert.equal(accountDisplayName('other@example.com', '다른 회원'), '다른 회원');
+});
+
+test('daily records use local calendar dates, preserve every measurement and sort newest first', () => {
+  const early = reading(new Date(2026, 10, 2, 23, 59).toISOString());
+  const midnight = reading(new Date(2026, 10, 3, 0, 0).toISOString());
+  const later = reading(new Date(2026, 10, 3, 9, 0).toISOString());
+  const source = [midnight, early, later];
+  const groups = groupReadingsByDay(source);
+  assert.deepEqual(groups, [['2026-11-03', [later, midnight]], ['2026-11-02', [early]]]);
+  assert.deepEqual(source, [midnight, early, later]);
+  assert.deepEqual(groupReadingsByDay([]), []);
+});
 test('login IDs map to the requested domain and accept full addresses', () => {
   assert.equal(loginEmail(' Parkjin0413 '), 'parkjin0413@pressure.com');
   assert.equal(loginEmail('ksn4962'), 'ksn4962@pressure.com');
