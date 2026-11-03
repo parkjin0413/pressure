@@ -2,13 +2,18 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { Activity, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronRight, Download, Heart, History, LayoutDashboard, Leaf, LogOut, Plus, ShieldCheck, TrendingUp, Trash2, X } from 'lucide-react';
+import { Activity, CalendarDays, Check, Download, History, LogOut, ShieldCheck, Trash2, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PasswordSettings } from '@/components/password-settings';
 import { average, csv, dateLabel, loginEmail, periodReadings, validateReading, type Reading } from '@/lib/records';
 
 type Tab = 'home' | 'history' | 'stats';
-const tabs = [{ id: 'home' as Tab, label: '오늘의 혈압', icon: LayoutDashboard }, { id: 'history' as Tab, label: '기록 내역', icon: History }, { id: 'stats' as Tab, label: '통계 보기', icon: TrendingUp }];
+type ReadingInput = Pick<Reading, 'systolic' | 'diastolic' | 'pulse' | 'note'>;
+const tabs = [
+  { id: 'home' as Tab, label: '입력', icon: Activity },
+  { id: 'history' as Tab, label: '기록', icon: History },
+  { id: 'stats' as Tab, label: '통계', icon: TrendingUp },
+];
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -17,16 +22,15 @@ export default function Home() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [tab, setTab] = useState<Tab>('home');
   const [days, setDays] = useState(7);
-  const [modal, setModal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [clock, setClock] = useState<Date | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const addButton = useRef<HTMLButtonElement>(null);
-  const firstInput = useRef<HTMLInputElement>(null);
   const requestVersion = useRef(0);
+  const actionInProgress = useRef(false);
+  const userId = user?.id;
 
   useEffect(() => {
     setClock(new Date());
@@ -40,159 +44,238 @@ export default function Home() {
 
   useEffect(() => {
     const version = ++requestVersion.current;
-    if (!user || demo || !supabase) return;
-    setLoading(true); setReadings([]); setError('');
+    setAuthorized(false);
+    if (demo || !userId || !supabase) return;
     const client = supabase;
+    setLoading(true); setReadings([]); setError('');
     void (async () => {
-      const membership = await client.from('pressure_members').select('user_id').eq('user_id', user.id).maybeSingle();
-      if (version !== requestVersion.current) return;
-      if (membership.error || !membership.data) { setError('사용이 허용된 계정이 아니거나 데이터베이스가 연결되지 않았어요. 설정을 확인해 주세요.'); setLoading(false); return; }
-      // Paginate so statistics and exports include every record, beyond Supabase's default row limit.
-      const all: Reading[] = [];
-      for (let offset = 0; ; offset += 1000) {
-        const { data, error } = await client.from('pressure_readings').select('id,systolic,diastolic,pulse,note,measured_at').order('measured_at', { ascending: false }).order('id').range(offset, offset + 999);
+      try {
+        const membership = await client.from('pressure_members').select('user_id').eq('user_id', userId).maybeSingle();
         if (version !== requestVersion.current) return;
-        if (error) { setError('기록을 불러오지 못했어요. 연결을 확인한 후 다시 시도해 주세요.'); setLoading(false); return; }
-        all.push(...data as Reading[]);
-        if (data.length < 1000) break;
+        if (membership.error || !membership.data) throw new Error();
+        const all: Reading[] = [];
+        for (let offset = 0; ; offset += 1000) {
+          const { data, error } = await client.from('pressure_readings')
+            .select('id,systolic,diastolic,pulse,note,measured_at')
+            .order('measured_at', { ascending: false }).order('id').range(offset, offset + 999);
+          if (version !== requestVersion.current) return;
+          if (error) throw error;
+          all.push(...data as Reading[]);
+          if (data.length < 1000) break;
+        }
+        setReadings(all); setAuthorized(true);
+      } catch {
+        if (version === requestVersion.current) setError('기록을 불러오지 못했어요. 계정과 연결 상태를 확인한 후 새로고침해 주세요.');
+      } finally {
+        if (version === requestVersion.current) setLoading(false);
       }
-      setReadings(all); setLoading(false);
     })();
-  }, [user, demo]);
-
-  useEffect(() => {
-    if (!modal) return;
-    firstInput.current?.focus();
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previous; addButton.current?.focus(); };
-  }, [modal]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = setTimeout(() => setNotice(''), 4500);
-    return () => clearTimeout(timeout);
-  }, [notice]);
+  }, [userId, demo]);
 
   function enterDemo() {
-    setDemo(true); setError(''); setReadings([]);
-    try { setReadings(JSON.parse(localStorage.getItem('maeil-demo-v1') ?? '[]')); } catch { /* Empty demo if browser storage is unavailable. */ }
+    setDemo(true); setError(''); setReadings([]); setLoading(false);
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem('maeil-demo-v1') ?? '[]');
+      if (Array.isArray(saved)) setReadings(saved.filter(r => r && typeof r.id === 'string' && typeof r.measured_at === 'string' && Number.isFinite(r.systolic) && Number.isFinite(r.diastolic)));
+    } catch { /* Start with an empty demo if local storage is unavailable. */ }
   }
 
   function storeDemo(next: Reading[]) {
-    try { localStorage.setItem('maeil-demo-v1', JSON.stringify(next)); }
-    catch { throw new Error('브라우저 저장 공간에 접근할 수 없어요. 저장 설정을 확인해 주세요.'); }
+    localStorage.setItem('maeil-demo-v1', JSON.stringify(next));
     setReadings(next);
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!supabase) return;
+    event.preventDefault();
+    if (!supabase || actionInProgress.current) return;
     const data = new FormData(event.currentTarget);
-    setBusy(true); setError('');
+    actionInProgress.current = true; setBusy(true); setError('');
     try {
-      const result = await supabase.auth.signInWithPassword({ email: loginEmail(String(data.get('email'))), password: String(data.get('password')) });
-      if (result.error) setError('로그인하지 못했어요. 아이디와 비밀번호 또는 네트워크 연결을 확인해 주세요.');
-    } catch { setError('서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.'); }
-    finally { setBusy(false); }
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail(String(data.get('email'))), password: String(data.get('password')),
+      });
+      if (error) setError('로그인하지 못했어요. 아이디와 비밀번호를 확인해 주세요.');
+    } catch { setError('연결하지 못했어요. 잠시 후 다시 시도해 주세요.'); }
+    finally { actionInProgress.current = false; setBusy(false); }
   }
 
   async function logout() {
-    setBusy(true); setError('');
+    if (actionInProgress.current) return;
+    actionInProgress.current = true; setBusy(true); setError('');
     try {
-      if (!demo && supabase) { const { error } = await supabase.auth.signOut({ scope: 'local' }); if (error) throw error; }
-      requestVersion.current++; setDemo(false); setUser(null); setReadings([]); setTab('home'); setNotice('');
-    } catch { setError('로그아웃하지 못했어요. 다시 시도해 주세요.'); }
-    finally { setBusy(false); }
-  }
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const systolic = Number(data.get('systolic')), diastolic = Number(data.get('diastolic'));
-    const pulse = data.get('pulse') ? Number(data.get('pulse')) : null;
-    const validation = validateReading(systolic, diastolic, pulse);
-    if (validation) { setError(validation); return; }
-    setBusy(true); setError('');
-    const values = { systolic, diastolic, pulse, note: String(data.get('note') ?? '').trim() };
-    try {
-      if (demo) storeDemo([{ ...values, id: crypto.randomUUID(), measured_at: new Date().toISOString() }, ...readings]);
-      else if (supabase && user) {
-        const { data: row, error } = await supabase.from('pressure_readings').insert(values).select('id,systolic,diastolic,pulse,note,measured_at').single();
+      if (!demo && supabase) {
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
         if (error) throw error;
-        setReadings(prev => [row as Reading, ...prev]);
-      } else throw new Error('로그인이 필요해요.');
-      setModal(false); setNotice(demo ? '체험 기록을 이 브라우저에 저장했어요.' : '혈압을 기록했어요. 오늘도 잘 챙기셨어요!');
-    } catch { setError('저장하지 못했어요. 로그인 상태와 연결을 확인한 뒤 다시 시도해 주세요.'); }
-    finally { setBusy(false); }
-  }
-
-  async function remove(id: string) {
-    setBusy(true); setError('');
-    try {
-      if (demo) storeDemo(readings.filter(r => r.id !== id));
-      else if (supabase) {
-        const { data, error } = await supabase.from('pressure_readings').delete().eq('id', id).select('id');
-        if (error || !data?.length) throw error ?? new Error('Missing record');
-        setReadings(prev => prev.filter(r => r.id !== id));
       }
-      setDeleteId(null); setNotice('기록을 삭제했어요.');
-    } catch { setError('삭제하지 못했어요. 다시 시도해 주세요.'); }
-    finally { setBusy(false); }
+      requestVersion.current++; setDemo(false); setUser(null); setReadings([]);
+      setTab('home'); setNotice(''); setAuthorized(false);
+    } catch { setError('로그아웃하지 못했어요. 다시 시도해 주세요.'); }
+    finally { actionInProgress.current = false; setBusy(false); }
   }
 
-  function download() {
-    const url = URL.createObjectURL(new Blob([csv(filtered)], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url; link.download = `매일혈압_${days}일_${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
+  async function save(values: ReadingInput) {
+    if (actionInProgress.current || (!demo && !authorized)) return false;
+    const validation = validateReading(values.systolic, values.diastolic, values.pulse);
+    if (validation) { setError(validation); setNotice(''); return false; }
+    actionInProgress.current = true; setBusy(true); setError(''); setNotice('');
+    try {
+      let saved: Reading;
+      if (demo) {
+        saved = { ...values, id: crypto.randomUUID(), measured_at: new Date().toISOString() };
+        storeDemo([saved, ...readings]);
+      } else {
+        if (!supabase || !user) throw new Error();
+        const { data, error } = await supabase.from('pressure_readings').insert(values)
+          .select('id,systolic,diastolic,pulse,note,measured_at').single();
+        if (error) throw error;
+        saved = data as Reading;
+        setReadings(prev => [saved, ...prev]);
+      }
+      setNotice('혈압 ' + saved.systolic + ' / ' + saved.diastolic + '을 저장했어요. (' + dateLabel(saved.measured_at) + ')' + (demo ? ' 체험 기록입니다.' : ''));
+      return true;
+    } catch {
+      setError('저장하지 못했어요. 입력한 내용은 그대로 있으니 연결을 확인하고 다시 저장해 주세요.');
+      return false;
+    } finally { actionInProgress.current = false; setBusy(false); }
+  }
+
+  async function remove(record: Reading) {
+    if (actionInProgress.current || !window.confirm(dateLabel(record.measured_at) + ' 기록을 삭제할까요? 삭제하면 복구할 수 없어요.')) return;
+    actionInProgress.current = true; setBusy(true); setError('');
+    try {
+      if (demo) storeDemo(readings.filter(r => r.id !== record.id));
+      else if (supabase) {
+        const { data, error } = await supabase.from('pressure_readings').delete().eq('id', record.id).select('id');
+        if (error || !data?.length) throw new Error();
+        setReadings(prev => prev.filter(r => r.id !== record.id));
+      }
+      setNotice('기록을 삭제했어요.');
+    } catch { setError('삭제하지 못했어요. 다시 시도해 주세요.'); }
+    finally { actionInProgress.current = false; setBusy(false); }
   }
 
   const filtered = periodReadings(readings, days);
-  const latest = readings[0];
-  const displayName = demo ? '체험' : (user?.user_metadata?.display_name || '회원');
-  const recordedDays = new Set(filtered.map(r => new Date(r.measured_at).toLocaleDateString('sv-SE'))).size;
+  function download() {
+    const url = URL.createObjectURL(new Blob([csv(filtered)], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = '매일혈압_' + days + '일.csv'; link.click();
+    URL.revokeObjectURL(url);
+  }
 
-  if (!ready) return <main className="splash"><Activity size={34} /><p>매일혈압을 준비하고 있어요…</p></main>;
+  const displayName = demo ? '체험' : (user?.user_metadata?.display_name || '회원');
+  if (!ready) return <main className="splash"><Activity size={32} /><p>잠시만 기다려 주세요.</p></main>;
 
   if (!user && !demo) return <main className="login-page">
-    <div className="login-intro"><Brand /><span className="eyebrow">A LITTLE CARE, EVERY DAY</span><h1>오늘의 작은 기록,<br />내일의 건강한 일상.</h1><p>나와 가족을 위한 혈압 기록장.<br />복잡한 과정 없이, 매일 가볍게 챙겨보세요.</p><div className="login-art" aria-hidden="true"><Heart size={86} strokeWidth={1} /><Activity size={138} strokeWidth={1.1} /><span>매일, 나를 돌보는 시간</span></div><span className="intro-bottom"><Leaf size={17} /> 작은 습관이 쌓이는 곳, 매일혈압</span></div>
-    <section className="login-card"><span className="pill"><ShieldCheck size={15} /> 우리 가족만의 건강 기록</span><h2>반가워요 <span className="wave">☀</span></h2><p>로그인하고 오늘의 혈압을 남겨보세요.</p><form onSubmit={login}><label>아이디<input type="text" name="email" autoCapitalize="none" spellCheck={false} autoComplete="username" placeholder="parkjin0413 또는 ksn4962" required disabled={!supabase} /></label><label>비밀번호<input type="password" name="password" autoComplete="current-password" placeholder="비밀번호를 입력해 주세요" required disabled={!supabase} /></label>{error && <p role="alert" className="error">{error}</p>}<button className="primary" disabled={busy || !supabase}>{busy ? '로그인 중…' : '로그인'}<ChevronRight size={19} /></button></form><p className="login-help">미리 등록된 두 분의 계정으로 이용할 수 있어요.<br />계정과 비밀번호는 가족 관리자에게 확인해 주세요.</p>{!supabase && <p className="setup-note">Supabase 연결 설정 전입니다.<br />아래 체험하기에서 화면과 기능을 확인할 수 있어요.</p>}<button className="text-button demo-link" onClick={enterDemo}>먼저 체험해 보기 <ArrowUpRight size={16} /></button><small>체험 기록은 현재 브라우저에만 저장됩니다.</small></section>
+    <Brand />
+    <section className="panel login-card" aria-labelledby="login-title">
+      <h1 id="login-title">로그인</h1><p className="muted">로그인하고 혈압을 기록해 주세요.</p>
+      <form onSubmit={login}>
+        <label>아이디<input type="text" name="email" autoCapitalize="none" spellCheck={false} autoComplete="username" required disabled={!supabase || busy} /></label>
+        <p className="field-help">parkjin0413 또는 ksn4962</p>
+        <label>비밀번호<input type="password" name="password" autoComplete="current-password" required disabled={!supabase || busy} /></label>
+        {error && <p role="alert" className="error">{error}</p>}
+        <button className="primary full-width" disabled={busy || !supabase}>{busy ? '로그인 중…' : '로그인'}</button>
+      </form>
+      {!supabase && <p className="muted">서버 연결 전입니다. 체험하기로 화면을 확인할 수 있어요.</p>}
+      <button className="text-button" onClick={enterDemo}>체험하기</button>
+    </section>
   </main>;
 
+  function switchTab(next: Tab) { setTab(next); setNotice(''); setError(''); }
+
   return <div className="app-shell">
-    <aside className="sidebar"><Brand /><div className="side-label">나의 건강 노트</div><nav aria-label="메인 메뉴">{tabs.map(t => <button key={t.id} className={tab === t.id ? 'nav-item active' : 'nav-item'} onClick={() => { setTab(t.id); setError(''); }}><t.icon size={20} />{t.label}{tab === t.id && <span className="nav-dot" />}</button>)}</nav><div className="side-bottom"><div className="side-note"><span className="leaf-icon"><Leaf size={22} /></span><strong>하루 한 번, 나를 돌보기</strong><p>작은 기록이 모여<br />건강한 일상을 만들어요.</p></div><div className="side-footer">매일혈압 <span>우리 가족 건강 기록장</span></div></div></aside>
-    <div className="workspace"><header className="topbar"><div className="mobile-brand"><Brand /></div><span className="desktop-breadcrumb">나의 건강 노트 <ChevronRight size={14} /> <b>{tabs.find(t => t.id === tab)?.label}</b></span><div className="account"><span className="account-avatar">{String(displayName).slice(0, 1)}</span><span>{displayName}님</span>{!demo && <PasswordSettings onChanged={() => setNotice('비밀번호를 변경했어요. 다음 로그인부터 새 비밀번호를 사용해 주세요.')} />}<button aria-label={demo ? '체험 종료' : '로그아웃'} title={demo ? '체험 종료' : '로그아웃'} onClick={logout} disabled={busy}><LogOut size={18} /></button></div></header>
+    <header className="topbar">
+      <Brand />
+      <div className="account"><span className="account-name">{displayName}님</span>
+        {!demo && <PasswordSettings onChanged={() => setNotice('비밀번호를 변경했어요. 다음 로그인부터 새 비밀번호를 사용해 주세요.')} />}
+        <button className="text-button" onClick={logout} disabled={busy}><LogOut size={18} />{demo ? '체험 종료' : '로그아웃'}</button>
+      </div>
+    </header>
     <main className="content">
-      {demo && <div className="demo-banner"><ShieldCheck size={16} /><span>체험 모드 · 기록은 이 브라우저에만 저장돼요.</span><button onClick={logout}>체험 종료</button></div>}
-      <div className="page-heading"><div><div className="today-date"><span className="little-dot" />{clock?.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div><h1>{tab === 'home' ? <>오늘도, 건강한 하루 <span className="sun">☀</span></> : tab === 'history' ? '차곡차곡 쌓인 나의 기록' : '한눈에 보는 혈압의 변화'}</h1><p>{tab === 'home' ? '혈압을 기록하는 작은 습관, 오늘도 함께해요.' : tab === 'history' ? '매일의 기록을 확인하고 필요한 기간을 내려받으세요.' : '꾸준히 기록한 혈압의 흐름과 평균을 살펴보세요.'}</p></div><button ref={addButton} className="primary add-button" onClick={() => { setError(''); setModal(true); }} disabled={loading}><Plus size={20} /> 혈압 기록하기</button></div>
-      {!modal && error && <div role="alert" className="error">{error}<button className="text-button" onClick={() => window.location.reload()}>다시 불러오기</button></div>}
-      {loading && <p role="status">기록을 불러오고 있어요…</p>}
+      <nav className="main-nav" aria-label="메인 메뉴">{tabs.map(t => <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} className={tab === t.id ? 'selected' : ''} onClick={() => switchTab(t.id)}><t.icon size={21} />{t.label}</button>)}</nav>
+      {demo && <p className="demo-banner">체험 모드 · 이 브라우저에만 저장돼요.</p>}
+      <div className="page-heading">
+        <h1>{tab === 'home' ? '혈압을 입력해 주세요' : tab === 'history' ? '기록' : '통계'}</h1>
+        {tab === 'home' && <p className="muted">혈압계에 나온 숫자를 적고 저장하세요.</p>}
+      </div>
+      {tab !== 'home' && error && <p role="alert" className="error">{error}</p>}
+      {tab !== 'home' && notice && <p role="status" className="success">{notice}</p>}
+      {loading && <p role="status" className="muted">기록을 불러오고 있어요…</p>}
 
-      {tab === 'home' && <><div className="overview-grid"><section className="latest-card"><div className="card-top"><h2><Activity size={19} /> 최근 측정 혈압</h2><span className="soft-tag">{latest ? dateLabel(latest.measured_at, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '첫 기록을 기다려요'}</span></div><div className="bp-value"><span>{latest?.systolic ?? '—'}</span><i>/</i><span>{latest?.diastolic ?? '—'}</span><small>mmHg</small></div><div className="bp-labels"><span><span className="legend-dot green" />수축기</span><span><span className="legend-dot gold" />이완기</span></div><div className="latest-footer"><span><Heart size={16} /> 맥박 <strong>{latest?.pulse ?? '—'}</strong> bpm</span><span>{latest ? '기록 완료' : '혈압계로 측정 후 입력해 주세요'}<Check size={14} /></span></div></section><section className="habit-card"><span className="habit-icon"><Leaf size={26} strokeWidth={1.6} /></span><span className="eyebrow">MY DAILY ROUTINE</span><h2>기록하는 것부터<br />건강한 변화의 시작.</h2><p>측정한 숫자만 입력해 주세요.<br />날짜와 시간은 자동으로 남겨둘게요.</p><span className="habit-decoration" aria-hidden="true">✳</span></section></div></>}
+      {tab === 'home' && <ReadingForm onSave={save} disabled={busy || loading || (!demo && !authorized)} busy={busy} error={error} notice={notice} clock={clock} />}
 
-      <section className="trends-section"><div className="section-heading"><div><h2>{tab === 'history' ? '기록 내역' : '나의 혈압 흐름'} <span className="subtle">{tab === 'history' ? `${filtered.length}개의 기록` : '조금씩 쌓이는 건강 습관'}</span></h2></div><div className="period-control" aria-label="조회 기간">{[7, 30, 90].map(d => <button key={d} aria-pressed={days === d} className={days === d ? 'selected' : ''} onClick={() => setDays(d)}>최근 {d}일</button>)}</div></div>
-      {tab !== 'history' && <><div className="stats-grid"><Stat label="평균 수축기" value={average(filtered, 'systolic')} unit="mmHg" icon={<ArrowUpRight size={18} />} tone="green" /><Stat label="평균 이완기" value={average(filtered, 'diastolic')} unit="mmHg" icon={<ArrowDownLeft size={18} />} tone="gold" /><Stat label="평균 맥박" value={average(filtered, 'pulse')} unit="bpm" icon={<Heart size={18} />} tone="rose" /><Stat label="기록한 날" value={recordedDays} unit={`/ ${days}일`} icon={<CalendarDays size={18} />} tone="blue" /></div><section className="chart-card"><div className="chart-heading"><h3>혈압 변화</h3><div className="chart-legend"><span><i className="legend-dot green" />수축기</span><span><i className="legend-dot gold" />이완기</span><small>단위: mmHg</small></div></div><TrendChart readings={filtered} days={days} /></section></>}
-      </section>
+      {tab !== 'home' && <section className="period-section" aria-label="조회 기간">
+        <h2>조회 기간</h2><div className="period-control">{[7, 30, 90].map(d => <button key={d} aria-pressed={days === d} className={days === d ? 'selected' : ''} onClick={() => setDays(d)}>{d}일</button>)}</div>
+        <p className="muted">최근 {days}일 · {filtered.length}회 측정</p>
+      </section>}
 
-      {tab !== 'stats' && <section className="history-section"><div className="section-heading"><h2>{tab === 'home' ? '최근 기록' : '측정 기록'} <span className="subtle">{tab === 'home' ? '최근 측정 순으로 보여드려요' : `최근 ${days}일`}</span></h2>{tab === 'home' ? <button className="text-button" onClick={() => setTab('history')}>전체 보기 <ChevronRight size={16} /></button> : <button className="text-button" disabled={!filtered.length} onClick={download}><Download size={16} /> CSV 저장</button>}</div><div className="records-card">{(tab === 'home' ? readings.slice(0, 4) : filtered).length === 0 ? <div className="empty-state"><span><History size={26} /></span><h3>{tab === 'home' ? '아직 기록이 없어요' : '이 기간에는 기록이 없어요'}</h3><p>혈압을 측정하고 첫 번째 기록을 남겨보세요.</p><button className="text-button" onClick={() => { setError(''); setModal(true); }}><Plus size={16} /> 첫 혈압 기록하기</button></div> : <><div className="record-table-head"><span>측정 일시</span><span>혈압 <small>mmHg</small></span><span>맥박 <small>bpm</small></span><span>메모</span><span /></div>{(tab === 'home' ? readings.slice(0, 4) : filtered).map(r => <article className="record-row" key={r.id}><time dateTime={r.measured_at}>{dateLabel(r.measured_at)}</time><strong className="record-bp">{r.systolic}<span>/</span>{r.diastolic}</strong><span className="record-pulse"><Heart size={13} />{r.pulse ?? '—'}</span><span className="record-note">{r.note || '메모 없음'}</span><button className="delete-button" aria-label={`${dateLabel(r.measured_at)} 기록 삭제`} onClick={() => setDeleteId(r.id)}><Trash2 size={16} /></button></article>)}</>}</div></section>}
-      <footer className="content-footer"><ShieldCheck size={15} /><span>나의 기록은 나만 볼 수 있어요.</span><span className="footer-divider">·</span><span>진단을 위한 도구가 아닌 개인 기록장입니다.</span><span className="footer-brand">매일혈압</span></footer>
-    </main></div>
-    <nav className="mobile-nav" aria-label="모바일 메뉴">{tabs.map(t => <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}><t.icon size={22} /><span>{t.label}</span></button>)}</nav>
-    {notice && <div className="toast" role="status"><Check size={18} />{notice}</div>}
-    {modal && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) { setModal(false); setError(''); } }}><section role="dialog" aria-modal="true" aria-labelledby="record-title" className="modal" onKeyDown={e => {
-      if (e.key === 'Escape' && !busy) { setModal(false); setError(''); }
-      if (e.key === 'Tab') {
-        const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)'));
-        const first = items[0], last = items[items.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }
-    }}><button className="modal-close" aria-label="닫기" disabled={busy} onClick={() => { setModal(false); setError(''); }}><X size={22} /></button><span className="pill"><Activity size={15} /> 오늘의 작은 건강 습관</span><h2 id="record-title">혈압 기록하기</h2><p>혈압계에 표시된 숫자를 입력해 주세요.</p><div className="auto-time"><CalendarDays size={17} /> 저장하는 시각이 자동으로 기록돼요.</div><form onSubmit={save}><div className="input-pair"><label>수축기 <span>최고 혈압</span><div className="number-input"><input ref={firstInput} name="systolic" type="number" inputMode="numeric" min="40" max="300" step="1" placeholder="120" required /><small>mmHg</small></div></label><label>이완기 <span>최저 혈압</span><div className="number-input"><input name="diastolic" type="number" inputMode="numeric" min="20" max="200" step="1" placeholder="80" required /><small>mmHg</small></div></label></div><label>맥박 <span>선택</span><div className="number-input pulse-input"><input name="pulse" type="number" inputMode="numeric" min="20" max="250" step="1" placeholder="예: 72" /><small>bpm</small></div></label><label>메모 <span>선택</span><textarea name="note" maxLength={300} placeholder="오늘의 컨디션을 간단히 남겨보세요." rows={2} /></label>{error && <p role="alert" className="error">{error}</p>}<button className="primary" disabled={busy}>{busy ? '저장 중…' : '이대로 기록하기'}<Check size={19} /></button></form></section></div>}
-    {deleteId && <div className="modal-backdrop"><section className="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" onKeyDown={e => { if (e.key === 'Escape' && !busy) setDeleteId(null); if (e.key === 'Tab') { e.preventDefault(); const buttons = Array.from(e.currentTarget.querySelectorAll('button')); (document.activeElement === buttons[0] ? buttons[1] : buttons[0])?.focus(); } }}><h2 id="delete-title">이 기록을 삭제할까요?</h2><p>삭제한 기록은 복구할 수 없어요.</p>{error && <p role="alert" className="error">{error}</p>}<div className="confirm-actions"><button autoFocus className="secondary" disabled={busy} onClick={() => setDeleteId(null)}>취소</button><button className="danger" disabled={busy} onClick={() => remove(deleteId)}>{busy ? '삭제 중…' : '삭제하기'}</button></div></section></div>}
+      {tab === 'stats' && <>
+        <div className="stats-grid">
+          <Stat label="평균 최고 혈압" value={average(filtered, 'systolic')} unit="mmHg" />
+          <Stat label="평균 최저 혈압" value={average(filtered, 'diastolic')} unit="mmHg" />
+          <Stat label="평균 맥박" value={average(filtered, 'pulse')} unit="회/분" />
+          <Stat label="기록한 날" value={new Set(filtered.map(r => new Date(r.measured_at).toLocaleDateString('sv-SE'))).size} unit="일" />
+        </div>
+        <section className="panel chart-card"><h2>혈압 변화</h2><div className="chart-legend"><span><i className="legend-dot green" />최고 혈압</span><span><i className="legend-dot gold" />최저 혈압</span></div><TrendChart readings={filtered} days={days} /></section>
+      </>}
+
+      {tab !== 'stats' && <section className="history-section" aria-labelledby="history-title">
+        <div className="section-heading"><h2 id="history-title">{tab === 'home' ? '최근 기록' : '측정 기록'}</h2>
+          {tab === 'home' ? <button className="text-button" onClick={() => switchTab('history')}>모든 기록 보기</button> : <button className="text-button" disabled={!filtered.length} onClick={download}><Download size={18} />파일로 저장</button>}
+        </div>
+        {(tab === 'home' ? readings.slice(0, 3) : filtered).length === 0
+          ? <div className="panel empty-state"><p>{loading ? '기록을 불러오는 중입니다.' : '아직 기록이 없어요.'}</p>{!loading && <p className="muted">{tab === 'home' ? '위 입력칸에 첫 혈압을 남겨보세요.' : '이 기간에 저장한 기록이 없습니다.'}</p>}</div>
+          : <div className="records-list">{(tab === 'home' ? readings.slice(0, 3) : filtered).map(r => <article className="panel record-card" key={r.id}>
+            <time dateTime={r.measured_at}>{dateLabel(r.measured_at)}</time>
+            <dl className="record-numbers"><div><dt>최고 혈압</dt><dd>{r.systolic}<small>mmHg</small></dd></div><div><dt>최저 혈압</dt><dd>{r.diastolic}<small>mmHg</small></dd></div>{r.pulse !== null && <div><dt>맥박</dt><dd>{r.pulse}<small>회/분</small></dd></div>}</dl>
+            {r.note && <p className="record-note">{r.note}</p>}
+            <button className="delete-button" disabled={busy} onClick={() => remove(r)} aria-label={dateLabel(r.measured_at) + ' 기록 삭제'}><Trash2 size={17} />삭제</button>
+          </article>)}</div>}
+      </section>}
+      <footer className="content-footer"><ShieldCheck size={18} /><p>기록은 본인만 볼 수 있어요.<br />개인 기록용이며 진단을 대신하지 않습니다.</p></footer>
+    </main>
   </div>;
 }
 
-function Brand() { return <div className="brand"><span className="brand-icon"><Activity size={24} strokeWidth={2} /></span><span>매일혈압<small>DAILY PRESSURE</small></span></div>; }
-function Stat({ label, value, unit, icon, tone }: { label: string; value: number | null; unit: string; icon: React.ReactNode; tone: string }) {
-  return <div className="stat-card"><div className="stat-label">{label}<span className={`stat-icon ${tone}`}>{icon}</span></div><div className="stat-value">{value ?? '—'}<small>{unit}</small></div></div>;
+function Brand() {
+  return <div className="brand"><Activity size={27} aria-hidden="true" /><span>매일혈압</span></div>;
+}
+
+function ReadingForm({ onSave, disabled, busy, error, notice, clock }: {
+  onSave: (values: ReadingInput) => Promise<boolean>; disabled: boolean; busy: boolean; error: string; notice: string; clock: Date | null;
+}) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disabled) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const success = await onSave({
+      systolic: Number(data.get('systolic')), diastolic: Number(data.get('diastolic')),
+      pulse: data.get('pulse') ? Number(data.get('pulse')) : null,
+      note: String(data.get('note') ?? '').trim(),
+    });
+    if (success) form.reset();
+  }
+  return <section className="panel entry-panel" aria-label="혈압 입력">
+    <p className="auto-time"><CalendarDays size={20} /><span>{clock?.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })}<br />저장할 때 시간이 자동으로 기록돼요.</span></p>
+    <form onSubmit={submit}>
+      <div className="reading-grid">
+        <label className="pressure-field"><span>최고 혈압 <small>수축기</small></span><input name="systolic" type="number" inputMode="numeric" min={40} max={300} step={1} required disabled={disabled} aria-describedby="systolic-unit" /><small id="systolic-unit">단위: mmHg</small></label>
+        <label className="pressure-field"><span>최저 혈압 <small>이완기</small></span><input name="diastolic" type="number" inputMode="numeric" min={20} max={200} step={1} required disabled={disabled} aria-describedby="diastolic-unit" /><small id="diastolic-unit">단위: mmHg</small></label>
+      </div>
+      <details className="optional-fields"><summary>맥박·메모도 입력하기 <span>(선택)</span></summary><div className="optional-content">
+        <label>맥박 <small>회/분</small><input name="pulse" type="number" inputMode="numeric" min={20} max={250} step={1} disabled={disabled} /></label>
+        <label>메모<textarea name="note" maxLength={300} rows={3} disabled={disabled} /></label>
+      </div></details>
+      {error && <p role="alert" className="error">{error}</p>}
+      <button className="primary save-button" disabled={disabled}><Check size={23} />{busy ? '저장 중…' : '혈압 저장'}</button>
+      <div className="save-feedback" role="status" aria-live="polite" aria-atomic="true">{notice && <p className="success">{notice}</p>}</div>
+    </form>
+  </section>;
+}
+
+function Stat({ label, value, unit }: { label: string; value: number | null; unit: string }) {
+  return <section className="panel stat-card"><h2>{label}</h2><p className="stat-value">{value ?? '—'}<small>{unit}</small></p></section>;
 }
 
 function TrendChart({ readings, days }: { readings: Reading[]; days: number }) {
