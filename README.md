@@ -2,7 +2,7 @@
 
 두 사람이 각자의 아이디로 쓰는 모바일 혈압 기록장입니다. Next.js App Router, TypeScript, Supabase Auth/Postgres, Vercel로 구성합니다.
 
-- 사이트: https://pressure-sandy.vercel.app
+- 사이트: https://pressure4962.vercel.app
 - 소스: https://github.com/parkjin0413/pressure
 - Supabase: 기존 `work` 프로젝트 (`urcdwhuiszggdaeksmcz`, 서울 리전)
 - 로그인 ID: `parkjin0413`, `ksn4962` (전체 `@pressure.com` 주소도 입력 가능)
