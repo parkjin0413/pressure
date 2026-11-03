@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { Activity, ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronRight, Download, Heart, History, LayoutDashboard, Leaf, LogOut, Plus, ShieldCheck, TrendingUp, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { PasswordSettings } from '@/components/password-settings';
 import { average, csv, dateLabel, loginEmail, periodReadings, validateReading, type Reading } from '@/lib/records';
 
 type Tab = 'home' | 'history' | 'stats';
@@ -158,7 +159,7 @@ export default function Home() {
 
   return <div className="app-shell">
     <aside className="sidebar"><Brand /><div className="side-label">나의 건강 노트</div><nav aria-label="메인 메뉴">{tabs.map(t => <button key={t.id} className={tab === t.id ? 'nav-item active' : 'nav-item'} onClick={() => { setTab(t.id); setError(''); }}><t.icon size={20} />{t.label}{tab === t.id && <span className="nav-dot" />}</button>)}</nav><div className="side-bottom"><div className="side-note"><span className="leaf-icon"><Leaf size={22} /></span><strong>하루 한 번, 나를 돌보기</strong><p>작은 기록이 모여<br />건강한 일상을 만들어요.</p></div><div className="side-footer">매일혈압 <span>우리 가족 건강 기록장</span></div></div></aside>
-    <div className="workspace"><header className="topbar"><div className="mobile-brand"><Brand /></div><span className="desktop-breadcrumb">나의 건강 노트 <ChevronRight size={14} /> <b>{tabs.find(t => t.id === tab)?.label}</b></span><div className="account"><span className="account-avatar">{String(displayName).slice(0, 1)}</span><span>{displayName}님</span><button aria-label={demo ? '체험 종료' : '로그아웃'} title={demo ? '체험 종료' : '로그아웃'} onClick={logout} disabled={busy}><LogOut size={18} /></button></div></header>
+    <div className="workspace"><header className="topbar"><div className="mobile-brand"><Brand /></div><span className="desktop-breadcrumb">나의 건강 노트 <ChevronRight size={14} /> <b>{tabs.find(t => t.id === tab)?.label}</b></span><div className="account"><span className="account-avatar">{String(displayName).slice(0, 1)}</span><span>{displayName}님</span>{!demo && <PasswordSettings onChanged={() => setNotice('비밀번호를 변경했어요. 다음 로그인부터 새 비밀번호를 사용해 주세요.')} />}<button aria-label={demo ? '체험 종료' : '로그아웃'} title={demo ? '체험 종료' : '로그아웃'} onClick={logout} disabled={busy}><LogOut size={18} /></button></div></header>
     <main className="content">
       {demo && <div className="demo-banner"><ShieldCheck size={16} /><span>체험 모드 · 기록은 이 브라우저에만 저장돼요.</span><button onClick={logout}>체험 종료</button></div>}
       <div className="page-heading"><div><div className="today-date"><span className="little-dot" />{clock?.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div><h1>{tab === 'home' ? <>오늘도, 건강한 하루 <span className="sun">☀</span></> : tab === 'history' ? '차곡차곡 쌓인 나의 기록' : '한눈에 보는 혈압의 변화'}</h1><p>{tab === 'home' ? '혈압을 기록하는 작은 습관, 오늘도 함께해요.' : tab === 'history' ? '매일의 기록을 확인하고 필요한 기간을 내려받으세요.' : '꾸준히 기록한 혈압의 흐름과 평균을 살펴보세요.'}</p></div><button ref={addButton} className="primary add-button" onClick={() => { setError(''); setModal(true); }} disabled={loading}><Plus size={20} /> 혈압 기록하기</button></div>
