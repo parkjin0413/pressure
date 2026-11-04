@@ -191,9 +191,9 @@ export default function Home() {
     <main className="content">
       <nav className="main-nav" aria-label="메인 메뉴">{tabs.map(t => <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} className={tab === t.id ? 'selected' : ''} onClick={() => switchTab(t.id)}><t.icon size={21} />{t.label}</button>)}</nav>
       {demo && <p className="demo-banner">체험 모드 · 이 브라우저에만 저장돼요.</p>}
-      <div className="page-heading">
-        <h1>{tab === 'home' ? '혈압 입력' : tab === 'history' ? '기록' : '통계'}</h1>
-      </div>
+      {tab !== 'home' && <div className="page-heading">
+        <h1>{tab === 'history' ? '기록' : '통계'}</h1>
+      </div>}
       {tab !== 'home' && error && <p role="alert" className="error">{error}</p>}
       {tab !== 'home' && notice && <p role="status" className="success">{notice}</p>}
       {loading && <p role="status" className="muted">기록을 불러오고 있어요…</p>}
@@ -254,19 +254,37 @@ function ReadingForm({ onSave, disabled, busy, error, notice, clock }: {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+    let frame = 0;
     // Older Android browsers resize only the visual viewport when the keyboard opens.
     const update = () => {
       const inset = viewport.scale === 1 ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
       saveAction.current?.style.setProperty('--keyboard-inset', `${inset}px`);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const active = document.activeElement;
+        const panel = saveAction.current?.closest('.entry-panel');
+        if (!window.matchMedia('(max-width: 600px)').matches || viewport.scale !== 1 ||
+          !(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) || !panel?.contains(active)) return;
+        const top = viewport.offsetTop + 8;
+        const bottom = Math.min(viewport.offsetTop + viewport.height, saveAction.current!.getBoundingClientRect().top) - 8;
+        // Keep both pressure fields visible together whenever the available height allows it.
+        const group = active.closest('.reading-grid')?.getBoundingClientRect();
+        const target = group && group.height <= bottom - top ? group : active.getBoundingClientRect();
+        if (target.bottom > bottom) window.scrollBy(0, target.bottom - bottom);
+        else if (target.top < top) window.scrollBy(0, target.top - top);
+      });
     };
     update();
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
     window.addEventListener('resize', update);
+    document.addEventListener('focusin', update);
     return () => {
+      cancelAnimationFrame(frame);
       viewport.removeEventListener('resize', update);
       viewport.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
+      document.removeEventListener('focusin', update);
     };
   }, []);
 
