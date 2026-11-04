@@ -13,4 +13,4 @@ order by grantee, table_name, column_name, privilege_type;
 
 select count(*) as registered_members from public.pressure_members;
 -- Expected: 2 members; RLS true on both tables; anon has no grants;
--- authenticated cannot INSERT user_id/measured_at or UPDATE any record.
+-- authenticated can INSERT measured_at but cannot INSERT user_id or UPDATE any record.

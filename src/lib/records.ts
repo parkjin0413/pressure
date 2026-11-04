@@ -7,6 +7,23 @@ export type Reading = {
   measured_at: string;
 };
 
+// datetime-local has no timezone; interpret it in the device's local timezone.
+export function localDateTimeValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${String(date.getFullYear()).padStart(4, '0')}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function measurementTime(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime()) || date.getFullYear() < 1 || localDateTimeValue(date) !== value) return null;
+  return date.toISOString();
+}
+
+export function newestReadings(readings: Reading[]) {
+  return [...readings].sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at));
+}
+
 export function loginEmail(identifier: string) {
   const value = identifier.trim().toLowerCase();
   return value.includes('@') ? value : `${value}@pressure.com`;

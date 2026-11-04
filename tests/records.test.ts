@@ -1,8 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accountDisplayName, average, csv, groupReadingsByDay, loginEmail, periodReadings, validateReading, type Reading } from '../src/lib/records.ts';
+import { accountDisplayName, average, csv, groupReadingsByDay, loginEmail, localDateTimeValue, measurementTime, newestReadings, periodReadings, validateReading, type Reading } from '../src/lib/records.ts';
 
 const reading = (date: string, pulse: number | null = null): Reading => ({ id: date, measured_at: date, systolic: 120, diastolic: 80, pulse, note: '' });
+test('selected measurement time uses local time and rejects empty or normalized invalid dates', () => {
+  const local = new Date(2026, 10, 3, 0, 5);
+  assert.equal(localDateTimeValue(local), '2026-11-03T00:05');
+  assert.equal(measurementTime('2026-11-03T00:05'), local.toISOString());
+  assert.equal(measurementTime('2024-02-29T23:59'), new Date(2024, 1, 29, 23, 59).toISOString());
+  for (const value of ['', 'invalid', '2026-02-29T12:00', '2026-04-31T12:00', '2026-11-03T24:00', '2026-11-03T09:00Z', '0000-01-01T00:00']) assert.equal(measurementTime(value), null);
+});
+
+test('backdated entries keep recent records and chart input in measurement order without mutating source', () => {
+  const old = reading(new Date(2026, 9, 1, 8).toISOString());
+  const recent = reading(new Date(2026, 10, 3, 8).toISOString());
+  const middle = reading(new Date(2026, 10, 2, 8).toISOString());
+  const source = [old, recent, middle];
+  assert.deepEqual(newestReadings(source), [recent, middle, old]);
+  assert.deepEqual(source, [old, recent, middle]);
+});
 test('account names apply to both login identities with a safe fallback', () => {
   assert.equal(accountDisplayName('parkjin0413@pressure.com', '나'), '박진');
   assert.equal(accountDisplayName('KSN4962@pressure.com', '엄마'), '김순녀');

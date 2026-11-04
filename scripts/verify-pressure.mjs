@@ -44,10 +44,17 @@ try {
   assert.ok((await anon.from('pressure_members').select('user_id')).error, 'Anonymous membership read must be denied');
   assert.ok((await clients[0].from('pressure_members').insert({ user_id: accounts[1].id, display_name: 'test' })).error, 'Membership self-enrollment must be denied');
   assert.ok((await clients[0].from('pressure_readings').insert({ systolic: 120, diastolic: 80, user_id: accounts[1].id })).error, 'Identity override must be denied');
-  assert.ok((await clients[0].from('pressure_readings').insert({ systolic: 120, diastolic: 80, measured_at: '2000-01-01T00:00:00Z' })).error, 'Timestamp override must be denied');
+  const selectedTime = '2026-01-02T23:05:00+09:00';
+  const backdated = await clients[0].from('pressure_readings').insert({ systolic: 120, diastolic: 80, measured_at: selectedTime, note: '__pressure_isolation_test__' }).select('id,measured_at').single();
+  assert.equal(backdated.error, null, 'Selected measurement time must be accepted');
+  testRecordIds.push(backdated.data.id);
+  assert.equal(Date.parse(backdated.data.measured_at), Date.parse(selectedTime));
+  const peerBackdated = await clients[1].from('pressure_readings').select('id').eq('id', backdated.data.id);
+  assert.equal(peerBackdated.error, null);
+  assert.deepEqual(peerBackdated.data, []);
   assert.ok((await clients[0].from('pressure_readings').insert({ systolic: 70, diastolic: 90 })).error, 'Invalid pressure order must be denied');
   assert.ok((await clients[0].from('pressure_readings').update({ systolic: 122 }).eq('id', testRecordIds[0])).error, 'Updates must be denied');
-  console.log('PASS: anonymous access, self-enrollment, identity/time overrides, invalid values and updates blocked.');
+  console.log('PASS: selected measurement time persists; peer access, anonymous access, self-enrollment, identity overrides, invalid values and updates blocked.');
   sqlFile('supabase/verify-nonmember.sql');
   console.log('PASS: unrelated authenticated users cannot read or insert pressure data.');
 

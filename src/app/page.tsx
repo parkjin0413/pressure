@@ -5,10 +5,10 @@ import type { User } from '@supabase/supabase-js';
 import { Activity, CalendarDays, Check, Download, History, LogOut, ShieldCheck, Trash2, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PasswordSettings } from '@/components/password-settings';
-import { accountDisplayName, average, csv, dateLabel, groupReadingsByDay, loginEmail, periodReadings, validateReading, type Reading } from '@/lib/records';
+import { accountDisplayName, average, csv, dateLabel, groupReadingsByDay, loginEmail, periodReadings, localDateTimeValue, measurementTime, newestReadings, validateReading, type Reading } from '@/lib/records';
 
 type Tab = 'home' | 'history' | 'stats';
-type ReadingInput = Pick<Reading, 'systolic' | 'diastolic' | 'pulse' | 'note'>;
+type ReadingInput = Pick<Reading, 'systolic' | 'diastolic' | 'pulse' | 'note'> & { measured_at?: string };
 const tabs = [
   { id: 'home' as Tab, label: '입력', icon: Activity },
   { id: 'history' as Tab, label: '기록', icon: History },
@@ -121,15 +121,15 @@ export default function Home() {
     try {
       let saved: Reading;
       if (demo) {
-        saved = { ...values, id: crypto.randomUUID(), measured_at: new Date().toISOString() };
-        storeDemo([saved, ...readings]);
+        saved = { ...values, id: crypto.randomUUID(), measured_at: values.measured_at ?? new Date().toISOString() };
+        storeDemo(newestReadings([saved, ...readings]));
       } else {
         if (!supabase || !user) throw new Error();
         const { data, error } = await supabase.from('pressure_readings').insert(values)
           .select('id,systolic,diastolic,pulse,note,measured_at').single();
         if (error) throw error;
         saved = data as Reading;
-        setReadings(prev => [saved, ...prev]);
+        setReadings(prev => newestReadings([saved, ...prev]));
       }
       setNotice('혈압 ' + saved.systolic + ' / ' + saved.diastolic + '을 저장했어요. (' + dateLabel(saved.measured_at) + ')' + (demo ? ' 체험 기록입니다.' : ''));
       return true;
@@ -247,27 +247,64 @@ function Brand() {
 function ReadingForm({ onSave, disabled, busy, error, notice, clock }: {
   onSave: (values: ReadingInput) => Promise<boolean>; disabled: boolean; busy: boolean; error: string; notice: string; clock: Date | null;
 }) {
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [timeError, setTimeError] = useState('');
+  const saveAction = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    // Older Android browsers resize only the visual viewport when the keyboard opens.
+    const update = () => {
+      const inset = viewport.scale === 1 ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+      saveAction.current?.style.setProperty('--keyboard-inset', `${inset}px`);
+    };
+    update();
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (disabled) return;
     const form = event.currentTarget;
     const data = new FormData(form);
+    const measuredAt = selectedTime === null ? undefined : measurementTime(selectedTime);
+    if (measuredAt === null) { setTimeError('올바른 측정 날짜와 시간을 입력해 주세요.'); return; }
+    setTimeError('');
     const success = await onSave({
       systolic: Number(data.get('systolic')), diastolic: Number(data.get('diastolic')),
       pulse: data.get('pulse') ? Number(data.get('pulse')) : null,
       note: String(data.get('note') ?? '').trim(),
+      ...(measuredAt ? { measured_at: measuredAt } : {}),
     });
-    if (success) form.reset();
+    if (success) { form.reset(); setSelectedTime(null); }
   }
   return <section className="panel entry-panel" aria-label="혈압 입력">
-    <p className="auto-time"><CalendarDays size={20} /><span>{clock?.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })}</span></p>
     <form onSubmit={submit}>
+      <details className="measurement-time">
+        <summary><CalendarDays size={20} /><span>{selectedTime && measurementTime(selectedTime)
+          ? dateLabel(measurementTime(selectedTime)!, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : clock?.toLocaleString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span><small>변경</small></summary>
+        <div className="time-controls">
+          <label>측정 날짜·시간<input type="datetime-local" name="measured_at" aria-describedby="time-help" value={selectedTime ?? (clock ? localDateTimeValue(clock) : '')} onChange={event => { setSelectedTime(event.target.value); setTimeError(''); }} disabled={disabled} /></label>
+          <p id="time-help" className="muted">날짜와 시간을 눌러 직접 설정할 수 있어요.</p>
+          <button type="button" className="text-button" onClick={() => { setSelectedTime(null); setTimeError(''); }} disabled={disabled}>현재 시각으로 되돌리기</button>
+        </div>
+      </details>
+      {timeError && <p role="alert" className="error">{timeError}</p>}
       <div className="reading-grid">
         <label className="pressure-field"><span>최고 혈압 <small>수축기</small></span><input name="systolic" type="number" inputMode="numeric" min={40} max={300} step={1} required disabled={disabled} aria-describedby="systolic-unit" /><small id="systolic-unit">단위: mmHg</small></label>
         <label className="pressure-field"><span>최저 혈압 <small>이완기</small></span><input name="diastolic" type="number" inputMode="numeric" min={20} max={200} step={1} required disabled={disabled} aria-describedby="diastolic-unit" /><small id="diastolic-unit">단위: mmHg</small></label>
       </div>
       {error && <p role="alert" className="error">{error}</p>}
-      <div className="save-action"><button className="primary save-button" disabled={disabled}><Check size={23} />{busy ? '저장 중…' : '혈압 저장'}</button></div>
+      <div className="save-action" ref={saveAction}><button className="primary save-button" disabled={disabled}><Check size={23} />{busy ? '저장 중…' : '혈압 저장'}</button></div>
       <div className="save-feedback" role="status" aria-live="polite" aria-atomic="true">{notice && <p className="success">{notice}</p>}</div>
       <details className="optional-fields"><summary>맥박·메모 입력 <span>(선택)</span></summary><div className="optional-content">
         <label>맥박 <small>회/분</small><input name="pulse" type="number" inputMode="numeric" min={20} max={250} step={1} disabled={disabled} /></label>

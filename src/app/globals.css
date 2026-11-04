@@ -129,7 +129,15 @@ input::-webkit-inner-spin-button, input::-webkit-outer-spin-button { -webkit-app
 textarea { resize: vertical; }
 .reading-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pressure-field > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; font-size: 1.2rem; }
-.pressure-field input { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pressure-field input { padding: 6px 10px; line-height: 1.2; font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.measurement-time { margin-bottom: 12px; }
+.measurement-time summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 44px; padding: 4px 0; cursor: pointer; color: var(--green); list-style: none; }
+.measurement-time summary::-webkit-details-marker { display: none; }
+.measurement-time summary small { margin-left: auto; text-decoration: underline; }
+.time-controls { display: grid; gap: 10px; padding: 8px 0 14px; }
+.time-controls input { max-width: 100%; }
+.time-controls .muted { font-size: .9rem; }
+.time-controls button { justify-self: start; }
 .optional-fields { margin: 16px 0 0; border-top: 1px solid var(--line); }
 .optional-fields summary { padding: 14px 2px; cursor: pointer; color: var(--green); font-weight: 600; }
 .optional-fields summary span { color: var(--muted); font-weight: 400; }
@@ -230,12 +238,12 @@ textarea { resize: vertical; }
   .page-heading { margin-bottom: 10px; }
   .page-heading h1 { font-size: 1.5rem; }
   .entry-panel { padding: 12px; }
-  .auto-time { margin-bottom: 12px; gap: 6px; }
+  .measurement-time { margin-bottom: 8px; }
   .pressure-field > span { gap: 0 8px; }
   .pressure-field > span small { display: block; flex-basis: 100%; }
-  .pressure-field input { margin-top: 4px; padding: 8px; font-size: 2rem; }
+  .pressure-field input { margin-top: 4px; padding: 6px 8px; font-size: 1.75rem; }
   .pressure-field > small { margin-top: 2px; }
-  .save-action { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; margin: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px #23382c10; }
+  .save-action { position: fixed; z-index: 20; left: 0; right: 0; bottom: var(--keyboard-inset, 0px); margin: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px #23382c10; }
   .save-button { min-height: 56px; }
   .optional-fields { margin-top: 12px; }
   .optional-fields summary { padding: 10px 0; }
